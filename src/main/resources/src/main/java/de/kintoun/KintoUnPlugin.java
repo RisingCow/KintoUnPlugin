@@ -4,7 +4,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.FallingBlock;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -12,6 +11,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
@@ -19,7 +19,6 @@ import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.util.Vector;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -27,11 +26,12 @@ import java.util.UUID;
 
 public class KintoUnPlugin extends JavaPlugin implements Listener {
 
+    private static final double MAX_HEIGHT = 50.0;
+
     private NamespacedKey kintoUnKey;
 
     private final Map<UUID, FallingBlock> activeClouds = new HashMap<>();
 
-    // Anzahl der insgesamt vergebenen Kinto-Uns
     private int kintoUnCount;
 
     @Override
@@ -39,15 +39,14 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         kintoUnKey = new NamespacedKey(this, "kinto_un_item");
 
-        // Gespeicherte Anzahl laden
         saveDefaultConfig();
+
         kintoUnCount = getConfig().getInt("kinto-un-count", 0);
 
         registerKintoUnRecipe();
 
         getServer().getPluginManager().registerEvents(this, this);
 
-        // Wolke folgt dem Spieler
         Bukkit.getScheduler().runTaskTimer(this, () -> {
 
             for (Map.Entry<UUID, FallingBlock> entry : activeClouds.entrySet()) {
@@ -60,24 +59,24 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 }
 
                 Location location = player.getLocation().clone();
-                location.add(0, -1.2, 0);
+
+                // Wolke unter dem Spieler
+                location.setY(player.getLocation().getY() - 1.2);
 
                 cloud.teleport(location);
-
-                Vector velocity = player.getVelocity();
-                cloud.setVelocity(velocity);
             }
 
         }, 1L, 1L);
 
         getLogger().info("KintoUn wurde gestartet!");
-        getLogger().info("Kinto-Uns auf dem Server: " + kintoUnCount + "/10");
+        getLogger().info("Kinto-Uns: " + kintoUnCount + "/10");
     }
 
     @Override
     public void onDisable() {
 
         for (FallingBlock cloud : activeClouds.values()) {
+
             if (!cloud.isDead()) {
                 cloud.remove();
             }
@@ -92,18 +91,15 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
     private void registerKintoUnRecipe() {
 
-        // Kinto-Un = gelbe Wolle
         ItemStack kintoUn = new ItemStack(Material.YELLOW_WOOL);
 
-        // Nur 1 Kinto-Un pro Stack
+        // Nur 1 pro Stack
         kintoUn.setAmount(1);
 
         ItemMeta meta = kintoUn.getItemMeta();
 
-        // Name im Inventar
         meta.setDisplayName("§6Kinto-Un");
 
-        // Eindeutige Kennzeichnung
         meta.getPersistentDataContainer().set(
                 kintoUnKey,
                 PersistentDataType.BYTE,
@@ -112,7 +108,6 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         kintoUn.setItemMeta(meta);
 
-        // Crafting-Rezept
         NamespacedKey recipeKey = new NamespacedKey(this, "kinto_un");
 
         ShapedRecipe recipe = new ShapedRecipe(recipeKey, kintoUn);
@@ -133,24 +128,24 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         ItemStack result = event.getRecipe().getResult();
 
-        // Nur Kinto-Un
         if (!isKintoUn(result)) {
             return;
         }
 
-        // Sind bereits 10 Kinto-Uns vorhanden?
+        // Maximal 10 Kinto-Uns
         if (kintoUnCount >= 10) {
 
             event.setCancelled(true);
 
             if (event.getWhoClicked() instanceof Player player) {
-                player.sendMessage("§cEs gibt bereits 10 Kinto-Uns auf dem Server!");
+                player.sendMessage(
+                        "§cEs gibt bereits 10 Kinto-Uns auf dem Server!"
+                );
             }
 
             return;
         }
 
-        // Eine neue Kinto-Un wurde hergestellt
         kintoUnCount++;
 
         saveKintoUnCount();
@@ -175,21 +170,20 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         ItemStack item = event.getItem();
 
-        // Nur echte Kinto-Un
         if (!isKintoUn(item)) {
             return;
         }
 
         Player player = event.getPlayer();
 
-        // Bereits eine aktive Kinto-Un?
+        // Nur eine aktive Kinto-Un pro Spieler
         if (activeClouds.containsKey(player.getUniqueId())) {
             return;
         }
 
-        // Wolke erstellen
         Location location = player.getLocation().clone();
-        location.add(0, -1.2, 0);
+
+        location.setY(player.getLocation().getY() - 1.2);
 
         FallingBlock cloud = player.getWorld().spawnFallingBlock(
                 location,
@@ -200,23 +194,49 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         cloud.setDropItem(false);
         cloud.setHurtEntities(false);
 
-        // Spieler auf die Wolke setzen
+        // Spieler sitzt auf der Kinto-Un
         cloud.addPassenger(player);
 
         activeClouds.put(player.getUniqueId(), cloud);
 
-        // Fliegen erlauben
+        // Fliegen aktivieren
         player.setAllowFlight(true);
         player.setFlying(true);
 
+        // Fluggeschwindigkeit
+        player.setFlySpeed(0.20f);
+
         // Kinto-Un aus der Hand entfernen
-        if (item.getAmount() > 1) {
-            item.setAmount(item.getAmount() - 1);
-        } else {
-            player.getInventory().setItemInMainHand(null);
-        }
+        player.getInventory().setItemInMainHand(null);
 
         event.setCancelled(true);
+    }
+
+    @EventHandler
+    public void onPlayerMove(PlayerMoveEvent event) {
+
+        Player player = event.getPlayer();
+
+        // Nur Spieler auf einer Kinto-Un
+        if (!activeClouds.containsKey(player.getUniqueId())) {
+            return;
+        }
+
+        Location to = event.getTo();
+
+        if (to == null) {
+            return;
+        }
+
+        // Maximale Höhe Y=50
+        if (to.getY() > MAX_HEIGHT) {
+
+            Location limited = to.clone();
+
+            limited.setY(MAX_HEIGHT);
+
+            event.setTo(limited);
+        }
     }
 
     @EventHandler
@@ -226,22 +246,24 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         FallingBlock cloud = activeClouds.remove(player.getUniqueId());
 
-        // Nur wenn tatsächlich eine Kinto-Un aktiv war
         if (cloud != null) {
 
             if (!cloud.isDead()) {
                 cloud.remove();
             }
 
-            // Eine Kinto-Un ist verloren gegangen.
-            // Dadurch wird wieder ein Platz frei.
+            // Eine Kinto-Un ist verloren gegangen
             if (kintoUnCount > 0) {
                 kintoUnCount--;
                 saveKintoUnCount();
             }
 
             player.sendMessage(
-                    "§6Deine Kinto-Un ist verschwunden. §7Eine neue kann wieder gecraftet werden."
+                    "§6Deine Kinto-Un ist verschwunden."
+            );
+
+            player.sendMessage(
+                    "§7Du kannst jetzt wieder eine neue craften."
             );
         }
     }
@@ -260,7 +282,11 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
     private boolean isKintoUn(ItemStack item) {
 
-        if (item == null || item.getType() != Material.YELLOW_WOOL) {
+        if (item == null) {
+            return false;
+        }
+
+        if (item.getType() != Material.YELLOW_WOOL) {
             return false;
         }
 
@@ -280,9 +306,7 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
     private void saveKintoUnCount() {
 
-        FileConfiguration config = getConfig();
-
-        config.set("kinto-un-count", kintoUnCount);
+        getConfig().set("kinto-un-count", kintoUnCount);
 
         saveConfig();
     }
