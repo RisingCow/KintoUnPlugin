@@ -1,0 +1,6 @@
+name: KintoUn
+version: 1.0.0
+main: de.kintoun.KintoUnPlugin
+api-version: '26.2'
+description: Goldene Kinto-Un und weitere Custom Items
+author: RisingCow
