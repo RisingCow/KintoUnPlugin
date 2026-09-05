@@ -4,14 +4,15 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.FallingBlock;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.ShapedRecipe;
@@ -30,11 +31,20 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
     private final Map<UUID, FallingBlock> activeClouds = new HashMap<>();
 
+    // Anzahl der insgesamt vergebenen Kinto-Uns
+    private int kintoUnCount;
+
     @Override
     public void onEnable() {
+
         kintoUnKey = new NamespacedKey(this, "kinto_un_item");
 
+        // Gespeicherte Anzahl laden
+        saveDefaultConfig();
+        kintoUnCount = getConfig().getInt("kinto-un-count", 0);
+
         registerKintoUnRecipe();
+
         getServer().getPluginManager().registerEvents(this, this);
 
         // Wolke folgt dem Spieler
@@ -54,7 +64,6 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
                 cloud.teleport(location);
 
-                // Geschwindigkeit des Spielers übernehmen
                 Vector velocity = player.getVelocity();
                 cloud.setVelocity(velocity);
             }
@@ -62,6 +71,7 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         }, 1L, 1L);
 
         getLogger().info("KintoUn wurde gestartet!");
+        getLogger().info("Kinto-Uns auf dem Server: " + kintoUnCount + "/10");
     }
 
     @Override
@@ -74,6 +84,8 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         }
 
         activeClouds.clear();
+
+        saveKintoUnCount();
 
         getLogger().info("KintoUn wurde beendet!");
     }
@@ -102,6 +114,7 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         // Crafting-Rezept
         NamespacedKey recipeKey = new NamespacedKey(this, "kinto_un");
+
         ShapedRecipe recipe = new ShapedRecipe(recipeKey, kintoUn);
 
         recipe.shape("YGY", "NAN", "BBB");
@@ -113,6 +126,40 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         recipe.setIngredient('B', Material.BEACON);
 
         getServer().addRecipe(recipe);
+    }
+
+    @EventHandler
+    public void onCraft(CraftItemEvent event) {
+
+        ItemStack result = event.getRecipe().getResult();
+
+        // Nur Kinto-Un
+        if (!isKintoUn(result)) {
+            return;
+        }
+
+        // Sind bereits 10 Kinto-Uns vorhanden?
+        if (kintoUnCount >= 10) {
+
+            event.setCancelled(true);
+
+            if (event.getWhoClicked() instanceof Player player) {
+                player.sendMessage("§cEs gibt bereits 10 Kinto-Uns auf dem Server!");
+            }
+
+            return;
+        }
+
+        // Eine neue Kinto-Un wurde hergestellt
+        kintoUnCount++;
+
+        saveKintoUnCount();
+
+        if (event.getWhoClicked() instanceof Player player) {
+            player.sendMessage(
+                    "§6Kinto-Un hergestellt! §7(" + kintoUnCount + "/10)"
+            );
+        }
     }
 
     @EventHandler
@@ -128,18 +175,19 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         ItemStack item = event.getItem();
 
+        // Nur echte Kinto-Un
         if (!isKintoUn(item)) {
             return;
         }
 
         Player player = event.getPlayer();
 
-        // Falls bereits eine Kinto-Un aktiv ist
+        // Bereits eine aktive Kinto-Un?
         if (activeClouds.containsKey(player.getUniqueId())) {
             return;
         }
 
-        // Gelben Wollblock als Wolke spawnen
+        // Wolke erstellen
         Location location = player.getLocation().clone();
         location.add(0, -1.2, 0);
 
@@ -157,11 +205,11 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         activeClouds.put(player.getUniqueId(), cloud);
 
-        // Flug aktivieren
+        // Fliegen erlauben
         player.setAllowFlight(true);
         player.setFlying(true);
 
-        // Kinto-Un aus der Hand nehmen
+        // Kinto-Un aus der Hand entfernen
         if (item.getAmount() > 1) {
             item.setAmount(item.getAmount() - 1);
         } else {
@@ -169,6 +217,45 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         }
 
         event.setCancelled(true);
+    }
+
+    @EventHandler
+    public void onPlayerDeath(PlayerDeathEvent event) {
+
+        Player player = event.getEntity();
+
+        FallingBlock cloud = activeClouds.remove(player.getUniqueId());
+
+        // Nur wenn tatsächlich eine Kinto-Un aktiv war
+        if (cloud != null) {
+
+            if (!cloud.isDead()) {
+                cloud.remove();
+            }
+
+            // Eine Kinto-Un ist verloren gegangen.
+            // Dadurch wird wieder ein Platz frei.
+            if (kintoUnCount > 0) {
+                kintoUnCount--;
+                saveKintoUnCount();
+            }
+
+            player.sendMessage(
+                    "§6Deine Kinto-Un ist verschwunden. §7Eine neue kann wieder gecraftet werden."
+            );
+        }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+
+        Player player = event.getPlayer();
+
+        FallingBlock cloud = activeClouds.remove(player.getUniqueId());
+
+        if (cloud != null && !cloud.isDead()) {
+            cloud.remove();
+        }
     }
 
     private boolean isKintoUn(ItemStack item) {
@@ -191,27 +278,12 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         return value != null && value == (byte) 1;
     }
 
-    @EventHandler
-    public void onPlayerDeath(PlayerDeathEvent event) {
+    private void saveKintoUnCount() {
 
-        Player player = event.getEntity();
+        FileConfiguration config = getConfig();
 
-        FallingBlock cloud = activeClouds.remove(player.getUniqueId());
+        config.set("kinto-un-count", kintoUnCount);
 
-        if (cloud != null && !cloud.isDead()) {
-            cloud.remove();
-        }
-    }
-
-    @EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event) {
-
-        Player player = event.getPlayer();
-
-        FallingBlock cloud = activeClouds.remove(player.getUniqueId());
-
-        if (cloud != null && !cloud.isDead()) {
-            cloud.remove();
-        }
+        saveConfig();
     }
 }
