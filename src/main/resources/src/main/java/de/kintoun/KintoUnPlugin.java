@@ -9,7 +9,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Entity;
-import org.bukkit.entity.FallingBlock;
+import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -59,16 +59,36 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
     private static final float TRAIL_SIZE = 0.55f;
 
+    /*
+     * Größe des Blockbench-Modells als ItemDisplay.
+     * Falls die Wolke später zu groß oder zu klein ist,
+     * kann dieser Wert angepasst werden.
+     */
+    private static final float CLOUD_MODEL_SCALE = 2.0f;
+
     private NamespacedKey kintoUnKey;
     private NamespacedKey recipeKey;
     private NamespacedKey achievementKey;
 
-    private final Map<UUID, FallingBlock> activeClouds = new HashMap<>();
-    private final Map<UUID, Long> boostCooldowns = new HashMap<>();
-    private final Map<UUID, Long> cloudRechargeCooldowns = new HashMap<>();
-    private final Map<UUID, List<ItemDisplay>> goldTrails = new HashMap<>();
-    private final Map<UUID, Location> lastTrailLocations = new HashMap<>();
-    private final Map<UUID, Integer> boostTasks = new HashMap<>();
+    private final Map<UUID, ItemDisplay> activeClouds = new HashMap<>();
+
+    private final Map<UUID, List<Interaction>> cloudHitboxes =
+            new HashMap<>();
+
+    private final Map<UUID, Long> boostCooldowns =
+            new HashMap<>();
+
+    private final Map<UUID, Long> cloudRechargeCooldowns =
+            new HashMap<>();
+
+    private final Map<UUID, List<ItemDisplay>> goldTrails =
+            new HashMap<>();
+
+    private final Map<UUID, Location> lastTrailLocations =
+            new HashMap<>();
+
+    private final Map<UUID, Integer> boostTasks =
+            new HashMap<>();
 
     private int kintoUnCount;
 
@@ -76,13 +96,22 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
     public void onEnable() {
 
         kintoUnKey =
-                new NamespacedKey(this, "kinto_un_item");
+                new NamespacedKey(
+                        this,
+                        "kinto_un_item"
+                );
 
         recipeKey =
-                new NamespacedKey(this, "kinto_un");
+                new NamespacedKey(
+                        this,
+                        "kinto_un"
+                );
 
         achievementKey =
-                new NamespacedKey(this, "kinto_un");
+                new NamespacedKey(
+                        this,
+                        "kinto_un"
+                );
 
         saveDefaultConfig();
 
@@ -98,38 +127,56 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         getServer()
                 .getPluginManager()
-                .registerEvents(this, this);
+                .registerEvents(
+                        this,
+                        this
+                );
 
         Bukkit.getScheduler().runTaskTimer(
                 this,
                 () -> {
 
-                    for (Map.Entry<UUID, FallingBlock> entry :
-                            activeClouds.entrySet()) {
+                    for (
+                            Map.Entry<UUID, ItemDisplay> entry :
+                            activeClouds.entrySet()
+                    ) {
 
                         Player player =
-                                Bukkit.getPlayer(entry.getKey());
+                                Bukkit.getPlayer(
+                                        entry.getKey()
+                                );
 
-                        FallingBlock cloud =
+                        ItemDisplay cloud =
                                 entry.getValue();
 
-                        if (player == null
-                                || !player.isOnline()
-                                || cloud.isDead()) {
+                        if (
+                                player == null
+                                        || !player.isOnline()
+                                        || cloud.isDead()
+                        ) {
                             continue;
                         }
 
                         Location cloudLocation =
-                                player.getLocation().clone();
+                                player.getLocation()
+                                        .clone();
 
                         cloudLocation.setY(
                                 player.getLocation().getY()
                                         - 1.2
                         );
 
-                        cloud.teleport(cloudLocation);
+                        cloud.teleport(
+                                cloudLocation
+                        );
 
-                        updateGoldTrail(player);
+                        updateCloudHitboxes(
+                                player
+                        );
+
+                        updateGoldTrail(
+                                player
+                        );
 
                         player.sendActionBar(
                                 "§6Drop Taste für Boost"
@@ -156,18 +203,41 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
 
-        for (FallingBlock cloud :
-                activeClouds.values()) {
+        for (
+                ItemDisplay cloud :
+                activeClouds.values()
+        ) {
 
             if (!cloud.isDead()) {
                 cloud.remove();
             }
         }
 
-        for (List<ItemDisplay> trail :
-                goldTrails.values()) {
+        for (
+                List<Interaction> hitboxes :
+                cloudHitboxes.values()
+        ) {
 
-            for (ItemDisplay gold : trail) {
+            for (
+                    Interaction hitbox :
+                    hitboxes
+            ) {
+
+                if (!hitbox.isDead()) {
+                    hitbox.remove();
+                }
+            }
+        }
+
+        for (
+                List<ItemDisplay> trail :
+                goldTrails.values()
+        ) {
+
+            for (
+                    ItemDisplay gold :
+                    trail
+            ) {
 
                 if (!gold.isDead()) {
                     gold.remove();
@@ -175,14 +245,17 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
             }
         }
 
-        for (Integer taskId :
-                boostTasks.values()) {
+        for (
+                Integer taskId :
+                boostTasks.values()
+        ) {
 
             Bukkit.getScheduler()
                     .cancelTask(taskId);
         }
 
         activeClouds.clear();
+        cloudHitboxes.clear();
         goldTrails.clear();
         lastTrailLocations.clear();
         boostCooldowns.clear();
@@ -195,10 +268,6 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 "KintoUn wurde beendet!"
         );
     }
-
-    // =========================================================
-    // REZEPT
-    // =========================================================
 
     private void registerKintoUnRecipe() {
 
@@ -242,14 +311,19 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 Material.BEACON
         );
 
-        getServer().addRecipe(recipe);
+        getServer().addRecipe(
+                recipe
+        );
     }
 
     private boolean isKintoUnRecipe(
-            CraftItemEvent event) {
+            CraftItemEvent event
+    ) {
 
-        if (!(event.getRecipe()
-                instanceof Keyed keyed)) {
+        if (
+                !(event.getRecipe()
+                        instanceof Keyed keyed)
+        ) {
 
             return false;
         }
@@ -258,10 +332,6 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 keyed.getKey()
         );
     }
-
-    // =========================================================
-    // ACHIEVEMENT REGISTRIEREN
-    // =========================================================
 
     @SuppressWarnings("deprecation")
     private void registerKintoUnAchievement() {
@@ -313,13 +383,10 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    // =========================================================
-    // CRAFTING
-    // =========================================================
-
     @EventHandler
     public void onCraft(
-            CraftItemEvent event) {
+            CraftItemEvent event
+    ) {
 
         if (!isKintoUnRecipe(event)) {
             return;
@@ -329,8 +396,10 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
             event.setCancelled(true);
 
-            if (event.getWhoClicked()
-                    instanceof Player player) {
+            if (
+                    event.getWhoClicked()
+                            instanceof Player player
+            ) {
 
                 player.sendMessage(
                         "§cEs gibt bereits 10 Kinto-Uns auf dem Server!"
@@ -344,8 +413,10 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
             event.setCancelled(true);
 
-            if (event.getWhoClicked()
-                    instanceof Player player) {
+            if (
+                    event.getWhoClicked()
+                            instanceof Player player
+            ) {
 
                 player.sendMessage(
                         "§cKinto-Un muss einzeln hergestellt werden!"
@@ -356,7 +427,8 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onItemCrafted(
-            ItemCraftedEvent event) {
+            ItemCraftedEvent event
+    ) {
 
         ItemStack crafted =
                 event.getCraftedItem();
@@ -376,7 +448,9 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         Player player =
                 event.getPlayer();
 
-        giveKintoUnAchievement(player);
+        giveKintoUnAchievement(
+                player
+        );
 
         int remaining =
                 MAX_KINTO_UNS
@@ -420,12 +494,9 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         );
     }
 
-    // =========================================================
-    // ACHIEVEMENT VERGEBEN
-    // =========================================================
-
     private void giveKintoUnAchievement(
-            Player player) {
+            Player player
+    ) {
 
         Advancement advancement =
                 Bukkit.getAdvancement(
@@ -450,8 +521,10 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
             return;
         }
 
-        for (String criterion :
-                progress.getRemainingCriteria()) {
+        for (
+                String criterion :
+                progress.getRemainingCriteria()
+        ) {
 
             progress.awardCriteria(
                     criterion
@@ -459,23 +532,24 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    // =========================================================
-    // KINTO-UN BENUTZEN
-    // =========================================================
-
     @EventHandler
     public void onPlayerInteract(
-            PlayerInteractEvent event) {
+            PlayerInteractEvent event
+    ) {
 
-        if (event.getHand()
-                != EquipmentSlot.HAND) {
+        if (
+                event.getHand()
+                        != EquipmentSlot.HAND
+        ) {
             return;
         }
 
-        if (event.getAction()
-                != Action.RIGHT_CLICK_AIR
-                && event.getAction()
-                != Action.RIGHT_CLICK_BLOCK) {
+        if (
+                event.getAction()
+                        != Action.RIGHT_CLICK_AIR
+                        && event.getAction()
+                        != Action.RIGHT_CLICK_BLOCK
+        ) {
 
             return;
         }
@@ -533,23 +607,61 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                         - 1.2
         );
 
-        FallingBlock cloud =
+        ItemDisplay cloud =
                 player.getWorld()
-                        .spawnFallingBlock(
+                        .spawn(
                                 location,
-                                Material.YELLOW_WOOL
-                                        .createBlockData()
+                                ItemDisplay.class
                         );
 
-        cloud.setGravity(false);
-        cloud.setDropItem(false);
-        cloud.setHurtEntities(false);
+        cloud.setItemStack(
+                createKintoUnItem()
+        );
 
-        cloud.addPassenger(player);
+        cloud.setItemDisplayTransform(
+                ItemDisplay.ItemDisplayTransform.FIXED
+        );
+
+        cloud.setTransformation(
+                new Transformation(
+                        new Vector3f(
+                                0f,
+                                0f,
+                                0f
+                        ),
+                        new AxisAngle4f(
+                                0f,
+                                0f,
+                                0f,
+                                1f
+                        ),
+                        new Vector3f(
+                                CLOUD_MODEL_SCALE,
+                                CLOUD_MODEL_SCALE,
+                                CLOUD_MODEL_SCALE
+                        ),
+                        new AxisAngle4f(
+                                0f,
+                                0f,
+                                0f,
+                                1f
+                        )
+                )
+        );
+
+        cloud.setInvulnerable(true);
 
         activeClouds.put(
                 uuid,
                 cloud
+        );
+
+        createCloudHitboxes(
+                player
+        );
+
+        cloud.addPassenger(
+                player
         );
 
         player.setAllowFlight(true);
@@ -580,13 +692,10 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         );
     }
 
-    // =========================================================
-    // KINTO-UN EINPACKEN
-    // =========================================================
-
     @EventHandler
     public void onCloudRightClick(
-            PlayerInteractEntityEvent event) {
+            PlayerInteractEntityEvent event
+    ) {
 
         Player player =
                 event.getPlayer();
@@ -594,31 +703,37 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         Entity clicked =
                 event.getRightClicked();
 
-        if (!(clicked instanceof FallingBlock cloud)) {
+        if (!(clicked instanceof Interaction hitbox)) {
             return;
         }
 
-        UUID uuid =
-                player.getUniqueId();
+        UUID ownerUUID =
+                findHitboxOwner(hitbox);
 
-        FallingBlock ownCloud =
-                activeClouds.get(uuid);
-
-        if (ownCloud == null) {
+        if (ownerUUID == null) {
             return;
         }
 
-        if (!ownCloud.getUniqueId()
-                .equals(cloud.getUniqueId())) {
+        if (!ownerUUID.equals(
+                player.getUniqueId()
+        )) {
 
             return;
         }
 
         event.setCancelled(true);
 
-        stopBoost(uuid);
+        stopBoost(ownerUUID);
 
-        cloud.removePassenger(player);
+        ItemDisplay cloud =
+                activeClouds.get(ownerUUID);
+
+        if (cloud != null) {
+
+            cloud.removePassenger(
+                    player
+            );
+        }
 
         player.setFlying(false);
         player.setAllowFlight(false);
@@ -627,52 +742,65 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 0.10f
         );
 
-        removeGoldTrail(uuid);
+        removeGoldTrail(
+                ownerUUID
+        );
 
-        giveKintoUn(player);
+        removeCloudHitboxes(
+                ownerUUID
+        );
 
-        cloud.remove();
+        giveKintoUn(
+                player
+        );
 
-        activeClouds.remove(uuid);
+        if (cloud != null
+                && !cloud.isDead()) {
+
+            cloud.remove();
+        }
+
+        activeClouds.remove(
+                ownerUUID
+        );
 
         player.sendActionBar(
                 "§6Kinto-Un eingepackt!"
         );
     }
 
-    // =========================================================
-    // KINTO-UN WIRD ANGEGRIFFEN
-    // =========================================================
-
     @EventHandler
     public void onCloudDamage(
-            EntityDamageByEntityEvent event) {
+            EntityDamageByEntityEvent event
+    ) {
 
-        if (!(event.getEntity()
-                instanceof FallingBlock cloud)) {
-
+        if (
+                !(event.getEntity()
+                        instanceof Interaction hitbox)
+        ) {
             return;
         }
 
         UUID ownerUUID =
-                findCloudOwner(cloud);
+                findHitboxOwner(hitbox);
 
         if (ownerUUID == null) {
             return;
         }
 
-        if (!(event.getDamager()
-                instanceof Player attacker)) {
+        event.setCancelled(true);
 
-            event.setCancelled(true);
-
+        if (
+                !(event.getDamager()
+                        instanceof Player attacker)
+        ) {
             return;
         }
 
-        event.setCancelled(true);
-
         Player owner =
-                Bukkit.getPlayer(ownerUUID);
+                Bukkit.getPlayer(
+                        ownerUUID
+                );
 
         if (owner == null) {
 
@@ -689,7 +817,21 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 ownerUUID
         );
 
-        cloud.removePassenger(owner);
+        ItemDisplay cloud =
+                activeClouds.get(
+                        ownerUUID
+                );
+
+        if (cloud != null) {
+
+            cloud.removePassenger(
+                    owner
+            );
+
+            if (!cloud.isDead()) {
+                cloud.remove();
+            }
+        }
 
         owner.setFlying(false);
         owner.setAllowFlight(false);
@@ -698,11 +840,15 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 0.10f
         );
 
-        giveKintoUn(owner);
-
-        cloud.remove();
+        giveKintoUn(
+                owner
+        );
 
         activeClouds.remove(
+                ownerUUID
+        );
+
+        removeCloudHitboxes(
                 ownerUUID
         );
 
@@ -727,13 +873,10 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         );
     }
 
-    // =========================================================
-    // BOOST
-    // =========================================================
-
     @EventHandler
     public void onDrop(
-            PlayerDropItemEvent event) {
+            PlayerDropItemEvent event
+    ) {
 
         Player player =
                 event.getPlayer();
@@ -776,11 +919,14 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 now + BOOST_COOLDOWN
         );
 
-        startBoost(player);
+        startBoost(
+                player
+        );
     }
 
     private void startBoost(
-            Player player) {
+            Player player
+    ) {
 
         UUID uuid =
                 player.getUniqueId();
@@ -791,7 +937,8 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 "§6⚡ BOOST!"
         );
 
-        final int[] ticks = {0};
+        final int[] ticks =
+                {0};
 
         int taskId =
                 Bukkit.getScheduler()
@@ -799,16 +946,20 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                                 this,
                                 () -> {
 
-                                    if (!player.isOnline()
-                                            || !activeClouds
-                                            .containsKey(uuid)) {
+                                    if (
+                                            !player.isOnline()
+                                                    || !activeClouds
+                                                    .containsKey(uuid)
+                                    ) {
 
                                         stopBoost(uuid);
                                         return;
                                     }
 
-                                    if (ticks[0]
-                                            >= BOOST_DURATION_TICKS) {
+                                    if (
+                                            ticks[0]
+                                                    >= BOOST_DURATION_TICKS
+                                    ) {
 
                                         stopBoost(uuid);
 
@@ -832,11 +983,15 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                                                     BOOST_SPEED
                                             );
 
-                                    if (location.getY()
-                                            >= MAX_HEIGHT - 1
-                                            && velocity.getY() > 0) {
+                                    if (
+                                            location.getY()
+                                                    >= MAX_HEIGHT - 1
+                                                    && velocity.getY() > 0
+                                    ) {
 
-                                        velocity.setY(0);
+                                        velocity.setY(
+                                                0
+                                        );
                                     }
 
                                     player.setVelocity(
@@ -858,24 +1013,274 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
     }
 
     private void stopBoost(
-            UUID uuid) {
+            UUID uuid
+    ) {
 
         Integer taskId =
-                boostTasks.remove(uuid);
+                boostTasks.remove(
+                        uuid
+                );
 
         if (taskId != null) {
 
             Bukkit.getScheduler()
-                    .cancelTask(taskId);
+                    .cancelTask(
+                            taskId
+                    );
         }
     }
 
-    // =========================================================
-    // GOLDENE SPUR
-    // =========================================================
+    private void createCloudHitboxes(
+            Player player
+    ) {
+
+        UUID uuid =
+                player.getUniqueId();
+
+        removeCloudHitboxes(
+                uuid
+        );
+
+        List<Interaction> hitboxes =
+                new ArrayList<>();
+
+        Location base =
+                player.getLocation()
+                        .clone();
+
+        base.setY(
+                player.getLocation().getY()
+                        - 1.2
+        );
+
+        /*
+         * Mittlere Hitbox
+         */
+        createHitbox(
+                player,
+                hitboxes,
+                base.clone(),
+                1.8f,
+                0.8f
+        );
+
+        /*
+         * Linke Wolkenhälfte
+         */
+        createHitbox(
+                player,
+                hitboxes,
+                base.clone().add(
+                        -0.85,
+                        0.05,
+                        0
+                ),
+                0.9f,
+                0.7f
+        );
+
+        /*
+         * Rechte Wolkenhälfte
+         */
+        createHitbox(
+                player,
+                hitboxes,
+                base.clone().add(
+                        0.85,
+                        0.05,
+                        0
+                ),
+                0.9f,
+                0.7f
+        );
+
+        /*
+         * Vorderer Teil
+         */
+        createHitbox(
+                player,
+                hitboxes,
+                base.clone().add(
+                        0,
+                        0.05,
+                        0.65
+                ),
+                1.4f,
+                0.65f
+        );
+
+        /*
+         * Hinterer Teil
+         */
+        createHitbox(
+                player,
+                hitboxes,
+                base.clone().add(
+                        0,
+                        0.05,
+                        -0.65
+                ),
+                1.4f,
+                0.65f
+        );
+
+        cloudHitboxes.put(
+                uuid,
+                hitboxes
+        );
+    }
+
+    private void createHitbox(
+            Player player,
+            List<Interaction> hitboxes,
+            Location location,
+            float width,
+            float height
+    ) {
+
+        Interaction hitbox =
+                player.getWorld()
+                        .spawn(
+                                location,
+                                Interaction.class
+                        );
+
+        hitbox.setInteractionWidth(
+                width
+        );
+
+        hitbox.setInteractionHeight(
+                height
+        );
+
+        hitbox.setResponsive(
+                true
+        );
+
+        hitboxes.add(
+                hitbox
+        );
+    }
+
+    private void updateCloudHitboxes(
+            Player player
+    ) {
+
+        UUID uuid =
+                player.getUniqueId();
+
+        List<Interaction> hitboxes =
+                cloudHitboxes.get(uuid);
+
+        if (
+                hitboxes == null
+                        || hitboxes.size() != 5
+        ) {
+            return;
+        }
+
+        Location base =
+                player.getLocation()
+                        .clone();
+
+        base.setY(
+                player.getLocation().getY()
+                        - 1.2
+        );
+
+        hitboxes.get(0).teleport(
+                base
+        );
+
+        hitboxes.get(1).teleport(
+                base.clone().add(
+                        -0.85,
+                        0.05,
+                        0
+                )
+        );
+
+        hitboxes.get(2).teleport(
+                base.clone().add(
+                        0.85,
+                        0.05,
+                        0
+                )
+        );
+
+        hitboxes.get(3).teleport(
+                base.clone().add(
+                        0,
+                        0.05,
+                        0.65
+                )
+        );
+
+        hitboxes.get(4).teleport(
+                base.clone().add(
+                        0,
+                        0.05,
+                        -0.65
+                )
+        );
+    }
+
+    private UUID findHitboxOwner(
+            Interaction hitbox
+    ) {
+
+        for (
+                Map.Entry<UUID, List<Interaction>> entry :
+                cloudHitboxes.entrySet()
+        ) {
+
+            for (
+                    Interaction stored :
+                    entry.getValue()
+            ) {
+
+                if (
+                        stored.getUniqueId()
+                                .equals(
+                                        hitbox.getUniqueId()
+                                )
+                ) {
+
+                    return entry.getKey();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private void removeCloudHitboxes(
+            UUID uuid
+    ) {
+
+        List<Interaction> hitboxes =
+                cloudHitboxes.remove(
+                        uuid
+                );
+
+        if (hitboxes == null) {
+            return;
+        }
+
+        for (
+                Interaction hitbox :
+                hitboxes
+        ) {
+
+            if (!hitbox.isDead()) {
+                hitbox.remove();
+            }
+        }
+    }
 
     private void updateGoldTrail(
-            Player player) {
+            Player player
+    ) {
 
         UUID uuid =
                 player.getUniqueId();
@@ -885,7 +1290,9 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                         .clone();
 
         Location last =
-                lastTrailLocations.get(uuid);
+                lastTrailLocations.get(
+                        uuid
+                );
 
         if (last == null) {
 
@@ -897,10 +1304,14 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
             return;
         }
 
-        if (current.distanceSquared(last)
-                < 0.04) {
+        if (
+                current.distanceSquared(last)
+                        < 0.04
+        ) {
 
-            removeLastTrailBlock(uuid);
+            removeLastTrailBlock(
+                    uuid
+            );
 
             return;
         }
@@ -911,8 +1322,10 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                                 last.toVector()
                         );
 
-        if (direction.lengthSquared()
-                == 0) {
+        if (
+                direction.lengthSquared()
+                        == 0
+        ) {
 
             return;
         }
@@ -925,11 +1338,14 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         );
 
         List<ItemDisplay> trail =
-                goldTrails.get(uuid);
+                goldTrails.get(
+                        uuid
+                );
 
         if (trail == null) {
 
-            trail = new ArrayList<>();
+            trail =
+                    new ArrayList<>();
 
             goldTrails.put(
                     uuid,
@@ -946,7 +1362,8 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                         );
 
         trailLocation.setY(
-                current.getY() - 1.2
+                current.getY()
+                        - 1.2
         );
 
         ItemDisplay gold =
@@ -960,6 +1377,10 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 new ItemStack(
                         Material.GOLD_BLOCK
                 )
+        );
+
+        gold.setItemDisplayTransform(
+                ItemDisplay.ItemDisplayTransform.FIXED
         );
 
         gold.setTransformation(
@@ -989,12 +1410,18 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 )
         );
 
-        gold.setInvulnerable(true);
+        gold.setInvulnerable(
+                true
+        );
 
-        trail.add(gold);
+        trail.add(
+                gold
+        );
 
-        while (trail.size()
-                > MAX_TRAIL_BLOCKS) {
+        while (
+                trail.size()
+                        > MAX_TRAIL_BLOCKS
+        ) {
 
             ItemDisplay oldest =
                     trail.remove(0);
@@ -1012,15 +1439,18 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
     private void updateTrailPositions(
             Player player,
-            Vector direction) {
+            Vector direction
+    ) {
 
         List<ItemDisplay> trail =
                 goldTrails.get(
                         player.getUniqueId()
                 );
 
-        if (trail == null
-                || trail.isEmpty()) {
+        if (
+                trail == null
+                        || trail.isEmpty()
+        ) {
 
             return;
         }
@@ -1034,9 +1464,11 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                         - 1.2
         );
 
-        for (int i = 0;
-             i < trail.size();
-             i++) {
+        for (
+                int i = 0;
+                i < trail.size();
+                i++
+        ) {
 
             ItemDisplay gold =
                     trail.get(i);
@@ -1057,18 +1489,25 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                                     )
                             );
 
-            gold.teleport(position);
+            gold.teleport(
+                    position
+            );
         }
     }
 
     private void removeLastTrailBlock(
-            UUID uuid) {
+            UUID uuid
+    ) {
 
         List<ItemDisplay> trail =
-                goldTrails.get(uuid);
+                goldTrails.get(
+                        uuid
+                );
 
-        if (trail == null
-                || trail.isEmpty()) {
+        if (
+                trail == null
+                        || trail.isEmpty()
+        ) {
 
             return;
         }
@@ -1082,15 +1521,20 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
     }
 
     private void removeGoldTrail(
-            UUID uuid) {
+            UUID uuid
+    ) {
 
         List<ItemDisplay> trail =
-                goldTrails.remove(uuid);
+                goldTrails.remove(
+                        uuid
+                );
 
         if (trail != null) {
 
-            for (ItemDisplay gold :
-                    trail) {
+            for (
+                    ItemDisplay gold :
+                    trail
+            ) {
 
                 if (!gold.isDead()) {
                     gold.remove();
@@ -1098,16 +1542,15 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
             }
         }
 
-        lastTrailLocations.remove(uuid);
+        lastTrailLocations.remove(
+                uuid
+        );
     }
-
-    // =========================================================
-    // MAXIMALE HÖHE
-    // =========================================================
 
     @EventHandler
     public void onPlayerMove(
-            PlayerMoveEvent event) {
+            PlayerMoveEvent event
+    ) {
 
         Player player =
                 event.getPlayer();
@@ -1135,17 +1578,16 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                     MAX_HEIGHT
             );
 
-            event.setTo(limited);
+            event.setTo(
+                    limited
+            );
         }
     }
 
-    // =========================================================
-    // TOD
-    // =========================================================
-
     @EventHandler
     public void onPlayerDeath(
-            PlayerDeathEvent event) {
+            PlayerDeathEvent event
+    ) {
 
         Player player =
                 event.getEntity();
@@ -1153,10 +1595,20 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         UUID uuid =
                 player.getUniqueId();
 
-        FallingBlock cloud =
-                activeClouds.remove(uuid);
+        ItemDisplay cloud =
+                activeClouds.remove(
+                        uuid
+                );
 
-        if (cloud == null) {
+        boolean wasRiding =
+                cloud != null;
+
+        boolean wasHolding =
+                hasKintoUnInInventory(
+                        player
+                );
+
+        if (!wasRiding && !wasHolding) {
             return;
         }
 
@@ -1164,8 +1616,25 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         removeGoldTrail(uuid);
 
-        if (!cloud.isDead()) {
+        removeCloudHitboxes(uuid);
+
+        if (
+                cloud != null
+                        && !cloud.isDead()
+        ) {
+
             cloud.remove();
+        }
+
+        /*
+         * Wenn der Spieler nur eine Kinto-Un
+         * im Inventar hatte, wird diese entfernt.
+         */
+        if (!wasRiding && wasHolding) {
+
+            removeOneKintoUnFromInventory(
+                    player
+            );
         }
 
         if (kintoUnCount > 0) {
@@ -1191,9 +1660,13 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
             );
         }
 
-        boostCooldowns.remove(uuid);
+        boostCooldowns.remove(
+                uuid
+        );
 
-        cloudRechargeCooldowns.remove(uuid);
+        cloudRechargeCooldowns.remove(
+                uuid
+        );
 
         player.setFlying(false);
         player.setAllowFlight(false);
@@ -1207,23 +1680,24 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         );
     }
 
-    // =========================================================
-    // SPIELER VERLÄSST SERVER
-    // =========================================================
-
     @EventHandler
     public void onPlayerQuit(
-            PlayerQuitEvent event) {
+            PlayerQuitEvent event
+    ) {
 
         UUID uuid =
                 event.getPlayer()
                         .getUniqueId();
 
-        FallingBlock cloud =
-                activeClouds.remove(uuid);
+        ItemDisplay cloud =
+                activeClouds.remove(
+                        uuid
+                );
 
-        if (cloud != null
-                && !cloud.isDead()) {
+        if (
+                cloud != null
+                        && !cloud.isDead()
+        ) {
 
             cloud.remove();
         }
@@ -1232,41 +1706,30 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
 
         removeGoldTrail(uuid);
 
-        boostCooldowns.remove(uuid);
-        cloudRechargeCooldowns.remove(uuid);
-    }
+        removeCloudHitboxes(uuid);
 
-    // =========================================================
-    // HILFSMETHODEN
-    // =========================================================
+        boostCooldowns.remove(
+                uuid
+        );
 
-    private UUID findCloudOwner(
-            FallingBlock cloud) {
-
-        for (Map.Entry<UUID, FallingBlock> entry :
-                activeClouds.entrySet()) {
-
-            if (entry.getValue()
-                    .getUniqueId()
-                    .equals(
-                            cloud.getUniqueId()
-                    )) {
-
-                return entry.getKey();
-            }
-        }
-
-        return null;
+        cloudRechargeCooldowns.remove(
+                uuid
+        );
     }
 
     private void removeCloudCompletely(
-            UUID uuid) {
+            UUID uuid
+    ) {
 
-        FallingBlock cloud =
-                activeClouds.remove(uuid);
+        ItemDisplay cloud =
+                activeClouds.remove(
+                        uuid
+                );
 
-        if (cloud != null
-                && !cloud.isDead()) {
+        if (
+                cloud != null
+                        && !cloud.isDead()
+        ) {
 
             cloud.remove();
         }
@@ -1274,20 +1737,27 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         stopBoost(uuid);
 
         removeGoldTrail(uuid);
+
+        removeCloudHitboxes(uuid);
     }
 
     private void giveKintoUn(
-            Player player) {
+            Player player
+    ) {
 
         ItemStack kintoUn =
                 createKintoUnItem();
 
         HashMap<Integer, ItemStack> leftover =
                 player.getInventory()
-                        .addItem(kintoUn);
+                        .addItem(
+                                kintoUn
+                        );
 
-        for (ItemStack item :
-                leftover.values()) {
+        for (
+                ItemStack item :
+                leftover.values()
+        ) {
 
             player.getWorld()
                     .dropItemNaturally(
@@ -1297,10 +1767,6 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    // =========================================================
-    // KINTO-UN ITEM
-    // =========================================================
-
     private ItemStack createKintoUnItem() {
 
         ItemStack kintoUn =
@@ -1308,11 +1774,29 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                         Material.YELLOW_WOOL
                 );
 
-        kintoUn.setAmount(1);
+        kintoUn.setAmount(
+                1
+        );
 
         kintoUn.setData(
                 DataComponentTypes.MAX_STACK_SIZE,
                 1
+        );
+
+        /*
+         * Das ist das neue Minecraft/Paper-26.2
+         * Item-Model-System.
+         *
+         * minecraft:kinto_un
+         * -> assets/minecraft/items/kinto_un.json
+         * -> minecraft:item/kinto_un
+         * -> assets/minecraft/models/item/kinto_un.json
+         */
+        kintoUn.setData(
+                DataComponentTypes.ITEM_MODEL,
+                NamespacedKey.minecraft(
+                        "kinto_un"
+                )
         );
 
         ItemMeta meta =
@@ -1329,20 +1813,25 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                         (byte) 1
                 );
 
-        kintoUn.setItemMeta(meta);
+        kintoUn.setItemMeta(
+                meta
+        );
 
         return kintoUn;
     }
 
     private boolean isKintoUn(
-            ItemStack item) {
+            ItemStack item
+    ) {
 
         if (item == null) {
             return false;
         }
 
-        if (item.getType()
-                != Material.YELLOW_WOOL) {
+        if (
+                item.getType()
+                        != Material.YELLOW_WOOL
+        ) {
 
             return false;
         }
@@ -1365,9 +1854,52 @@ public class KintoUnPlugin extends JavaPlugin implements Listener {
                 && value == (byte) 1;
     }
 
-    // =========================================================
-    // SPEICHERN
-    // =========================================================
+    private boolean hasKintoUnInInventory(
+            Player player
+    ) {
+
+        for (
+                ItemStack item :
+                player.getInventory()
+                        .getContents()
+        ) {
+
+            if (isKintoUn(item)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void removeOneKintoUnFromInventory(
+            Player player
+    ) {
+
+        for (
+                int slot = 0;
+                slot < player.getInventory()
+                        .getSize();
+                slot++
+        ) {
+
+            ItemStack item =
+                    player.getInventory()
+                            .getItem(slot);
+
+            if (!isKintoUn(item)) {
+                continue;
+            }
+
+            player.getInventory()
+                    .setItem(
+                            slot,
+                            null
+                    );
+
+            return;
+        }
+    }
 
     private void saveKintoUnCount() {
 
